@@ -30,9 +30,10 @@ const DB_CONFIG = {
   database: process.env.DB_NAME || "scrapers",
 };
 
-const FETCH_QUERIES_SQL = "select query from spotify.not_scraped_queries_vw";
-const INSERT_SEARCH_SQL =
-  "insert into spotify.searches(author_name, profile_title, query, url) values ($1, $2, $3, $4)";
+const FETCH_PROFILE_URLS_SQL =
+  "select url from spotify.not_scraped_profiles_vw";
+const INSERT_PROFILE_SQL =
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url) values ($1, $2, $3, $4, $5, $6) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -123,67 +124,35 @@ function validateAuthHeaders(headers) {
   }
 }
 
-function buildRequestBody(query) {
+function buildUriFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    if (segments[0] !== "show" || !segments[1]) {
+      return null;
+    }
+
+    return `spotify:show:${segments[1]}`;
+  } catch (error) {
+    return null;
+  }
+}
+
+function buildShowRequestBody(uri) {
   return {
-    variables: {
-      includePreReleases: false,
-      numberOfTopResults: 20,
-      searchTerm: query,
-      offset: 0,
-      limit: 30,
-      includeAudiobooks: true,
-      includeAuthors: false,
-    },
-    operationName: "searchPodcasts",
+    variables: { uri },
+    operationName: "queryShowMetadataV2",
     extensions: {
       persistedQuery: {
         version: 1,
-        sha256Hash: "f4d1e6ff2422dd998e26ba696e853e4372811843361e91105f736d128d3d64e0",
+        sha256Hash: "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a",
       },
     },
   };
 }
 
-function buildUrlFromUri(uri) {
-  if (typeof uri !== "string") {
-    return null;
-  }
-
-  const parts = uri.split(":");
-
-  if (parts.length < 3 || parts[0] !== "spotify") {
-    return null;
-  }
-
-  const type = parts[1];
-  const id = parts.slice(2).join(":");
-
-  if (!type || !id) {
-    return null;
-  }
-
-  return `https://open.spotify.com/${type}/${id}`;
-}
-
-function extractPodcastItems(responseJson) {
-  const searchPodcasts = responseJson?.data?.searchPodcasts;
-  const searchPodcastsV2 = responseJson?.data?.searchPodcastsV2;
-  const searchV2 = responseJson?.data?.searchV2;
-  const candidateArrays = [
-    searchPodcasts?.items,
-    searchPodcasts?.itemsV2,
-    searchPodcasts?.podcasts?.items,
-    searchPodcasts?.podcastUnionV2?.items,
-    searchPodcastsV2?.items,
-    searchPodcastsV2?.podcasts?.items,
-    searchPodcastsV2?.podcastUnionV2?.items,
-    searchV2?.podcasts?.items,
-  ];
-
-  return candidateArrays.find(Array.isArray) || [];
-}
- 
-function parseProfiles(responseJson, query) {
+function parseProfileResponse(responseJson) {
   if (Array.isArray(responseJson?.errors) && responseJson.errors.length) {
     const message = responseJson.errors
       .map((error) =>
@@ -195,39 +164,43 @@ function parseProfiles(responseJson, query) {
     throw new Error(message || "Spotify API returned an error response.");
   }
 
-  const items = extractPodcastItems(responseJson);
+  const podcast = responseJson?.data?.podcastUnionV2;
 
-  if (!Array.isArray(items) || !items.length) {
-    return [];
+  if (!podcast || typeof podcast !== "object") {
+    return null;
   }
 
-  return items
-    .map((item) => {
-      const data =
-        item && typeof item === "object" && item.data && typeof item.data === "object"
-          ? item.data
-          : item;
+  const showName =
+    typeof podcast?.name === "string" ? podcast.name.trim() : "";
+  const hostName =
+    typeof podcast?.publisher?.name === "string"
+      ? podcast.publisher.name.trim()
+      : "";
+  const about =
+    typeof podcast?.description === "string" ? podcast.description.trim() : "";
 
-      if (!data || typeof data !== "object") {
-        return null;
-      }
+  const averageRating = podcast?.rating?.average;
+  const rate =
+    typeof averageRating === "number" && Number.isFinite(averageRating)
+      ? String(Math.round(averageRating))
+      : "";
 
-      const authorName =
-        typeof data?.publisher?.name === "string" ? data.publisher.name : "";
-      const profileTitle = typeof data?.name === "string" ? data.name : "";
-      const uri = typeof data?.uri === "string" ? data.uri : "";
-      const url = buildUrlFromUri(uri);
+  const totalRatings = podcast?.rating?.totalRatings;
+  const reviews =
+    typeof totalRatings === "number" && Number.isFinite(totalRatings)
+      ? String(totalRatings)
+      : typeof totalRatings === "string"
+        ? totalRatings
+        : "";
 
-      if (!url) {
-        return null;
-      }
+  if (!showName || !hostName) {
+    return null;
+  }
 
-      return { authorName, profileTitle, query, url };
-    })
-    .filter(Boolean);
+  return { showName, hostName, about, rate, reviews };
 }
 
-async function fetchSearchResults(headers, query) {
+async function fetchShowMetadata(headers, uri) {
   if (USE_SCRAPE_NINJA) {
     const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
       method: "POST",
@@ -240,7 +213,7 @@ async function fetchSearchResults(headers, query) {
         url: API_URL,
         method: "POST",
         headers,
-        body: JSON.stringify(buildRequestBody(query)),
+        body: JSON.stringify(buildShowRequestBody(uri)),
       }),
     });
 
@@ -264,7 +237,7 @@ async function fetchSearchResults(headers, query) {
   const response = await fetch(API_URL, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildRequestBody(query)),
+    body: JSON.stringify(buildShowRequestBody(uri)),
   });
 
   if (!response.ok) {
@@ -277,35 +250,28 @@ async function fetchSearchResults(headers, query) {
   return response.json();
 }
 
-async function loadQueries(pool) {
-  const { rows } = await pool.query(FETCH_QUERIES_SQL);
+async function loadProfileUrls(pool) {
+  const { rows } = await pool.query(FETCH_PROFILE_URLS_SQL);
 
   return rows
-    .map((row) => (row && typeof row.query === "string" ? row.query.trim() : ""))
+    .map((row) => (row && typeof row.url === "string" ? row.url.trim() : ""))
     .filter((value) => value !== "");
 }
 
-async function saveProfiles(pool, profiles) {
-  if (!profiles.length) {
-    return 0;
-  }
-
+async function saveProfile(pool, profile) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-
-    for (const profile of profiles) {
-      await client.query(INSERT_SEARCH_SQL, [
-        profile.authorName,
-        profile.profileTitle,
-        profile.query,
-        profile.url,
-      ]);
-    }
-
+    await client.query(INSERT_PROFILE_SQL, [
+      profile.showName,
+      profile.hostName,
+      profile.about,
+      profile.rate,
+      profile.reviews,
+      profile.url,
+    ]);
     await client.query("COMMIT");
-    return profiles.length;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -325,29 +291,38 @@ async function main() {
   const pool = new Pool(DB_CONFIG);
 
   try {
-    const queries = await loadQueries(pool);
+    const urls = await loadProfileUrls(pool);
 
-    if (!queries.length) {
-      console.warn("No queries found to process.");
+    if (!urls.length) {
+      console.warn("No profiles found to process.");
       return;
     }
 
-    console.log(`Processing ${queries.length} quer${queries.length === 1 ? "y" : "ies"}.`);
+    console.log(
+      `Processing ${urls.length} profile${urls.length === 1 ? "" : "s"}.`
+    );
 
-    for (const query of queries) {
+    for (const url of urls) {
       try {
-        const responseJson = await fetchSearchResults(headers, query);
-        const profiles = parseProfiles(responseJson, query);
-        
-        if (!profiles.length) {
-          console.warn(`No profiles returned for query: ${query}`);
+        const uri = buildUriFromUrl(url);
+
+        if (!uri) {
+          console.warn(`Could not build Spotify URI from URL: ${url}`);
           continue;
         }
 
-        const inserted = await saveProfiles(pool, profiles);
-        console.log(`Saved ${inserted} profile${inserted === 1 ? "" : "s"} for query "${query}".`);
+        const responseJson = await fetchShowMetadata(headers, uri);
+        const profile = parseProfileResponse(responseJson);
+
+        if (!profile) {
+          console.warn(`No profile data returned for URL: ${url}`);
+          continue;
+        }
+
+        await saveProfile(pool, { ...profile, url });
+        console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
-        console.error(`Failed to process query "${query}": ${error.message}`);
+        console.error(`Failed to process URL "${url}": ${error.message}`);
       }
     }
   } finally {
