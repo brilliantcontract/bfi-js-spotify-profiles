@@ -32,13 +32,8 @@ const DB_CONFIG = {
 
 const FETCH_PROFILE_URLS_SQL =
   "select url from spotify.not_scraped_profiles_vw";
-const URL_COLUMN_CANDIDATES = [
-  "url",
-  "profile_url",
-  "show_url",
-  "source_url",
-  "spotify_url",
-];
+const INSERT_PROFILE_SQL =
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url) values ($1, $2, $3, $4, $5, $6) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -263,36 +258,12 @@ async function loadProfileUrls(pool) {
     .filter((value) => value !== "");
 }
 
-function buildInsertProfileSql(urlColumn) {
-  return `insert into spotify.profiles(show_name, host_name, about, rate, reviews, ${urlColumn}) values ($1, $2, $3, $4, $5, $6) on conflict (${urlColumn}) do nothing`;
-}
-
-async function detectUrlColumn(pool) {
-  const { rows } = await pool.query(
-    `select column_name from information_schema.columns where table_schema = 'spotify' and table_name = 'profiles'`
-  );
-
-  const existingColumns = new Set(rows.map((row) => row?.column_name).filter(Boolean));
-  const urlColumn = URL_COLUMN_CANDIDATES.find((candidate) =>
-    existingColumns.has(candidate)
-  );
-
-  if (!urlColumn) {
-    const columnList = Array.from(existingColumns).sort().join(", ") || "<none>";
-    throw new Error(
-      `Could not find a URL column in spotify.profiles. Checked candidates: ${URL_COLUMN_CANDIDATES.join(", ")}. Existing columns: ${columnList}.`
-    );
-  }
-
-  return urlColumn;
-}
-
-async function saveProfile(pool, insertProfileSql, profile) {
+async function saveProfile(pool, profile) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    await client.query(insertProfileSql, [
+    await client.query(INSERT_PROFILE_SQL, [
       profile.showName,
       profile.hostName,
       profile.about,
@@ -320,8 +291,6 @@ async function main() {
   const pool = new Pool(DB_CONFIG);
 
   try {
-    const urlColumn = await detectUrlColumn(pool);
-    const insertProfileSql = buildInsertProfileSql(urlColumn);
     const urls = await loadProfileUrls(pool);
 
     if (!urls.length) {
@@ -350,7 +319,7 @@ async function main() {
           continue;
         }
 
-        await saveProfile(pool, insertProfileSql, { ...profile, url });
+        await saveProfile(pool, { ...profile, url });
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
