@@ -129,19 +129,47 @@ function buildUriFromUrl(url) {
     const parsed = new URL(url);
     const segments = parsed.pathname.split("/").filter(Boolean);
 
-    if (segments[0] !== "show" || !segments[1]) {
+    if (segments.length < 2) {
       return null;
     }
 
-    return `spotify:show:${segments[1]}`;
+    const [resourceType, resourceId] = segments;
+    return `spotify:${resourceType}:${resourceId}`;
   } catch (error) {
     return null;
   }
 }
 
+function normalizeUri(uriOrUrl) {
+  if (typeof uriOrUrl !== "string") {
+    return null;
+  }
+
+  const trimmed = uriOrUrl.trim();
+
+  if (trimmed === "") {
+    return null;
+  }
+
+  if (trimmed.startsWith("spotify:")) {
+    return trimmed;
+  }
+
+  return buildUriFromUrl(trimmed);
+}
+
 function buildShowRequestBody(uri) {
+  const normalizedUri = normalizeUri(uri);
+    console.log(normalizedUri)
+
+  if (!normalizedUri) {
+    throw new Error(
+      "Invalid Spotify show identifier. Provide a spotify: URI or an open.spotify.com URL."
+    );
+  }
+
   return {
-    variables: { uri },
+    variables: { uri: normalizedUri },
     operationName: "queryShowMetadataV2",
     extensions: {
       persistedQuery: {
@@ -151,6 +179,7 @@ function buildShowRequestBody(uri) {
     },
   };
 }
+
 
 function parseProfileResponse(responseJson) {
   if (Array.isArray(responseJson?.errors) && responseJson.errors.length) {
