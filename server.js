@@ -205,13 +205,20 @@ function parseProfileResponse(responseJson) {
   const about =
     typeof podcast?.description === "string" ? podcast.description.trim() : "";
 
-  const averageRating = podcast?.rating?.average;
+
+  const averageRating =
+    typeof podcast?.rating?.averageRating?.average === "number"
+      ? podcast.rating.averageRating.average
+      : podcast?.rating?.average;
+
   const rate =
     typeof averageRating === "number" && Number.isFinite(averageRating)
-      ? String(Math.round(averageRating))
+      ? (Math.floor(averageRating * 10) / 10).toFixed(1)
       : "";
 
-  const totalRatings = podcast?.rating?.totalRatings;
+  const totalRatings =
+    podcast?.rating?.averageRating?.totalRatings ?? podcast?.rating?.totalRatings;
+
   const reviews =
     typeof totalRatings === "number" && Number.isFinite(totalRatings)
       ? String(totalRatings)
