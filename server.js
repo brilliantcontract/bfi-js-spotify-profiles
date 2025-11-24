@@ -68,7 +68,6 @@ const DEFAULT_HEADERS = {
     process.env.USER_AGENT ||
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
 };
-
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
 }
@@ -160,7 +159,6 @@ function normalizeUri(uriOrUrl) {
 
 function buildShowRequestBody(uri) {
   const normalizedUri = normalizeUri(uri);
-    console.log(normalizedUri)
 
   if (!normalizedUri) {
     throw new Error(
