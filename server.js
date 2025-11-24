@@ -192,7 +192,6 @@ function parseProfileResponse(responseJson) {
   }
 
   const podcast = responseJson?.data?.podcastUnionV2;
-
   if (!podcast || typeof podcast !== "object") {
     return null;
   }
@@ -307,6 +306,28 @@ async function saveProfile(pool, profile) {
   }
 }
 
+async function ensureProfilesTableSchema(pool) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists url text"
+    );
+    await client.query(
+      "create unique index if not exists profiles_url_key on spotify.profiles(url)"
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw new Error(
+      `Failed to ensure spotify.profiles schema is ready: ${error.message}`
+    );
+  } finally {
+    client.release();
+  }
+}
+
 async function main() {
   await ensureDataDir();
 
@@ -318,6 +339,7 @@ async function main() {
   const pool = new Pool(DB_CONFIG);
 
   try {
+    await ensureProfilesTableSchema(pool);
     const urls = await loadProfileUrls(pool);
 
     if (!urls.length) {
