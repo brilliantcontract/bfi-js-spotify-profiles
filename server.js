@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { Pool } from "pg";
+import { JSDOM } from "jsdom";
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ const DB_CONFIG = {
 const FETCH_PROFILE_URLS_SQL =
   "select url from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url) values ($1, $2, $3, $4, $5, $6) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, category) values ($1, $2, $3, $4, $5, $6, $7) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -233,6 +234,24 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews };
 }
 
+function extractCategoryFromHtml(html) {
+  try {
+    const dom = new JSDOM(html);
+    const chipElement = dom.window.document.querySelector(
+      'span[class^="LegacyChip__LegacyChipComponent"]'
+    );
+
+    if (!chipElement) {
+      return "";
+    }
+
+    const text = chipElement.textContent;
+    return typeof text === "string" ? text.trim() : "";
+  } catch (error) {
+    return "";
+  }
+}
+
 async function fetchShowMetadata(headers, uri) {
   if (USE_SCRAPE_NINJA) {
     const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
@@ -283,6 +302,56 @@ async function fetchShowMetadata(headers, uri) {
   return response.json();
 }
 
+async function fetchShowPageHtml(headers, url) {
+  if (USE_SCRAPE_NINJA) {
+    const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-rapidapi-host": SCRAPE_NINJA_HOST,
+        "x-rapidapi-key": SCRAPE_NINJA_API_KEY,
+      },
+      body: JSON.stringify({
+        url,
+        method: "GET",
+        headers,
+      }),
+    });
+
+    if (!scrapeResponse.ok) {
+      const text = await scrapeResponse.text();
+      throw new Error(
+        `Scrape Ninja page request failed with status ${scrapeResponse.status}: ${text.slice(0, 200)}`
+      );
+    }
+
+    const result = await scrapeResponse.json();
+    const body = typeof result?.body === "string" ? result.body : null;
+
+    if (!body) {
+      throw new Error("Scrape Ninja response did not include a page body.");
+    }
+
+    return body;
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Page request failed with status ${response.status}: ${text.slice(0, 200)}`
+    );
+  }
+
+  return response.text();
+}
+
+async function fetchProfileCategory(headers, url) {
+  const html = await fetchShowPageHtml(headers, url);
+  return extractCategoryFromHtml(html);
+}
+
 async function loadProfileUrls(pool) {
   const { rows } = await pool.query(FETCH_PROFILE_URLS_SQL);
 
@@ -303,6 +372,7 @@ async function saveProfile(pool, profile) {
       profile.rate,
       profile.reviews,
       profile.url,
+      profile.category,
     ]);
     await client.query("COMMIT");
   } catch (error) {
@@ -320,6 +390,9 @@ async function ensureProfilesTableSchema(pool) {
     await client.query("BEGIN");
     await client.query(
       "alter table if exists spotify.profiles add column if not exists url text"
+    );
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists category text"
     );
     await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
@@ -375,8 +448,20 @@ async function main() {
           continue;
         }
 
-        await saveProfile(pool, { ...profile, url });
-        console.log(`Saved profile for URL "${url}".`);
+        let category = "";
+
+        try {
+          category = await fetchProfileCategory(headers, url);
+        } catch (error) {
+          console.warn(
+            `Failed to fetch category for URL "${url}": ${error.message}`
+          );
+        }
+
+        await saveProfile(pool, { ...profile, url, category });
+        console.log(
+          `Saved profile for URL "${url}"${category ? ` with category "${category}"` : ""}.`
+        );
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
       }
