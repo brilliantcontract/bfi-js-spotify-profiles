@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { Pool } from "pg";
+import { JSDOM } from "jsdom";
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ const DB_CONFIG = {
 const FETCH_PROFILE_URLS_SQL =
   "select url from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links) values ($1, $2, $3, $4, $5, $6, $7) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, category, url, links) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -244,6 +245,82 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews };
 }
 
+function extractCategoryFromHtml(html) {
+  if (typeof html !== "string" || html.trim() === "") {
+    return "";
+  }
+
+  try {
+    const dom = new JSDOM(html);
+    const categoryElement = dom.window.document.querySelector(
+      'span[class^="LegacyChip__LegacyChipComponent"]'
+    );
+
+    const category = categoryElement?.textContent?.trim();
+    return category || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function buildPageRequestHeaders(headers) {
+  const pageHeaders = {
+    ...headers,
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  };
+
+  delete pageHeaders["content-type"];
+
+  return pageHeaders;
+}
+
+async function fetchProfilePage(headers, url) {
+  const pageHeaders = buildPageRequestHeaders(headers);
+
+  if (USE_SCRAPE_NINJA) {
+    const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-rapidapi-host": SCRAPE_NINJA_HOST,
+        "x-rapidapi-key": SCRAPE_NINJA_API_KEY,
+      },
+      body: JSON.stringify({
+        url,
+        method: "GET",
+        headers: pageHeaders,
+      }),
+    });
+
+    if (!scrapeResponse.ok) {
+      const text = await scrapeResponse.text();
+      throw new Error(
+        `Scrape Ninja request failed with status ${scrapeResponse.status}: ${text.slice(0, 200)}`
+      );
+    }
+
+    const result = await scrapeResponse.json();
+
+    if (typeof result?.body !== "string" || result.body.trim() === "") {
+      throw new Error("Scrape Ninja response did not include the page body.");
+    }
+
+    return result.body;
+  }
+
+  const response = await fetch(url, { headers: pageHeaders });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Request for profile page failed with status ${response.status}: ${text.slice(0, 200)}`
+    );
+  }
+
+  return response.text();
+}
+
 async function fetchShowMetadata(headers, uri) {
   if (USE_SCRAPE_NINJA) {
     const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
@@ -313,6 +390,7 @@ async function saveProfile(pool, profile) {
       profile.about,
       profile.rate,
       profile.reviews,
+      profile.category,
       profile.url,
       profile.links,
     ]);
@@ -335,6 +413,9 @@ async function ensureProfilesTableSchema(pool) {
     );
     await client.query(
       "alter table if exists spotify.profiles add column if not exists links text"
+    );
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists category text"
     );
     await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
@@ -390,9 +471,20 @@ async function main() {
           continue;
         }
 
+        let category = "";
+
+        try {
+          const pageHtml = await fetchProfilePage(headers, url);
+          category = extractCategoryFromHtml(pageHtml);
+        } catch (error) {
+          console.warn(
+            `Failed to fetch category for URL "${url}": ${error.message}`
+          );
+        }
+
         const links = extractLinksFromDescription(profile.about);
 
-        await saveProfile(pool, { ...profile, url, links });
+        await saveProfile(pool, { ...profile, category, url, links });
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
