@@ -33,7 +33,7 @@ const DB_CONFIG = {
 const FETCH_PROFILE_URLS_SQL =
   "select url from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url) values ($1, $2, $3, $4, $5, $6) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links) values ($1, $2, $3, $4, $5, $6, $7) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -137,6 +137,17 @@ function buildUriFromUrl(url) {
   } catch (error) {
     return null;
   }
+}
+
+function extractLinksFromDescription(description) {
+  if (typeof description !== "string" || description.trim() === "") {
+    return "";
+  }
+
+  const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
+  const matches = description.match(urlRegex) || [];
+
+  return matches.map((match) => match.trim()).filter(Boolean).join("◙");
 }
 
 function normalizeUri(uriOrUrl) {
@@ -303,6 +314,7 @@ async function saveProfile(pool, profile) {
       profile.rate,
       profile.reviews,
       profile.url,
+      profile.links,
     ]);
     await client.query("COMMIT");
   } catch (error) {
@@ -320,6 +332,9 @@ async function ensureProfilesTableSchema(pool) {
     await client.query("BEGIN");
     await client.query(
       "alter table if exists spotify.profiles add column if not exists url text"
+    );
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists links text"
     );
     await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
@@ -375,7 +390,9 @@ async function main() {
           continue;
         }
 
-        await saveProfile(pool, { ...profile, url });
+        const links = extractLinksFromDescription(profile.about);
+
+        await saveProfile(pool, { ...profile, url, links });
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
