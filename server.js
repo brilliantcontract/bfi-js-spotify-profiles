@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const HEADERS_FILE = path.join(DATA_DIR, "headers.json");
+const PAGE_DIR = path.join(DATA_DIR, "page");
 
 const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 
@@ -71,6 +72,7 @@ const DEFAULT_HEADERS = {
 };
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(PAGE_DIR, { recursive: true });
 }
 
 async function loadHeaderOverrides() {
@@ -261,6 +263,35 @@ function extractCategoryFromHtml(html) {
   } catch (error) {
     return "";
   }
+}
+
+function buildPageFilename(identifier) {
+  if (typeof identifier === "string" && identifier.trim() !== "") {
+    return identifier
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gi, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  return `page_${Date.now()}`;
+}
+
+async function savePageHtml(pageHtml, { url, uri }) {
+  if (typeof pageHtml !== "string" || pageHtml.trim() === "") {
+    return;
+  }
+
+  const identifier = uri || url || "page";
+  const filename = `${buildPageFilename(identifier)}.json`;
+  const filepath = path.join(PAGE_DIR, filename);
+  const payload = {
+    url: url || null,
+    uri: uri || null,
+    html: pageHtml,
+  };
+
+  await fs.writeFile(filepath, JSON.stringify(payload, null, 2), "utf-8");
 }
 
 function buildPageRequestHeaders(headers) {
@@ -475,6 +506,13 @@ async function main() {
 
         try {
           const pageHtml = await fetchProfilePage(headers, url);
+          try {
+            await savePageHtml(pageHtml, { url, uri });
+          } catch (saveError) {
+            console.warn(
+              `Failed to save page HTML for URL "${url}": ${saveError.message}`
+            );
+          }
           category = extractCategoryFromHtml(pageHtml);
         } catch (error) {
           console.warn(
