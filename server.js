@@ -204,11 +204,20 @@ function parseProfileResponse(responseJson) {
 
     throw new Error(message || "Spotify API returned an error response.");
   }
-
   const podcast = responseJson?.data?.podcastUnionV2;
   if (!podcast || typeof podcast !== "object") {
     return null;
   }
+
+  console.log(podcast)
+  try {
+    savePageHtml(podcast, { url, uri });
+  } catch (saveError) {
+    console.warn(
+      `Failed to save page HTML for URL "${url}": ${saveError.message}`
+    );
+  }
+
 
   const showName =
     typeof podcast?.name === "string" ? podcast.name.trim() : "";
@@ -251,7 +260,7 @@ function extractCategoryFromHtml(html) {
   if (typeof html !== "string" || html.trim() === "") {
     return "";
   }
-  
+
   try {
     const dom = new JSDOM(html);
     const categoryElement = dom.window.document.querySelector(
@@ -506,13 +515,6 @@ async function main() {
 
         try {
           const pageHtml = await fetchProfilePage(headers, url);
-          try {
-            await savePageHtml(pageHtml, { url, uri });
-          } catch (saveError) {
-            console.warn(
-              `Failed to save page HTML for URL "${url}": ${saveError.message}`
-            );
-          }
           category = extractCategoryFromHtml(pageHtml);
         } catch (error) {
           console.warn(
