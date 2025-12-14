@@ -217,8 +217,8 @@ function parseProfileResponse(responseJson) {
     typeof podcast?.description === "string" ? podcast.description.trim() : "";
 
   const category = (() => {
-    if (typeof podcast?.topics?.title === "string") {
-      return podcast.topics.title.trim();
+    if (typeof podcast?.topics?.items?.title === "string") {
+      return podcast.topics.items.title.trim();
     }
 
     if (Array.isArray(podcast?.topics)) {
