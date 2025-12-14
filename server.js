@@ -217,12 +217,10 @@ function parseProfileResponse(responseJson) {
     typeof podcast?.description === "string" ? podcast.description.trim() : "";
 
   const category = (() => {
-    if (typeof podcast?.topics?.items?.title === "string") {
-      return podcast.topics.items.title.trim();
-    }
+    const topicItems = podcast?.topics?.items;
 
-    if (Array.isArray(podcast?.topics)) {
-      return podcast.topics
+    if (Array.isArray(topicItems)) {
+      return topicItems
         .map((topic) =>
           typeof topic?.title === "string" ? topic.title.trim() : ""
         )
