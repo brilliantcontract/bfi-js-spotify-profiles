@@ -249,7 +249,7 @@ function extractCategoryFromHtml(html) {
   if (typeof html !== "string" || html.trim() === "") {
     return "";
   }
-
+  
   try {
     const dom = new JSDOM(html);
     const categoryElement = dom.window.document.querySelector(
