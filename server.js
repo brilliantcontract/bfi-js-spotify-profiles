@@ -48,7 +48,7 @@ function buildAuthorizationHeader(value) {
 
 const DEFAULT_HEADERS = {
   accept: "application/json",
-  "accept-language": "ru",
+  "accept-language": "en",
   "app-platform": "WebPlayer",
   authorization: buildAuthorizationHeader(process.env.SPOTIFY_AUTHORIZATION),
   "client-token": process.env.SPOTIFY_CLIENT_TOKEN?.trim() || "",
