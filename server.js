@@ -333,8 +333,19 @@ async function loadProfileUrls(pool) {
   return rows
     .map((row) => ({
       url: row && typeof row.url === "string" ? row.url.trim() : "",
-      searchId:
-        row && typeof row.search_id === "string" ? row.search_id.trim() : "",
+      searchId: (() => {
+        const rawSearchId = row?.search_id;
+
+        if (typeof rawSearchId === "string") {
+          return rawSearchId.trim();
+        }
+
+        if (typeof rawSearchId === "number" && Number.isFinite(rawSearchId)) {
+          return String(rawSearchId);
+        }
+
+        return "";
+      })(),
     }))
     .filter((value) => value.url !== "");
 }
