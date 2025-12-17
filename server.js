@@ -31,9 +31,9 @@ const DB_CONFIG = {
 };
 
 const FETCH_PROFILE_URLS_SQL =
-  "select url from spotify.not_scraped_profiles_vw";
+  "select url, search_id from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category, search_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -331,8 +331,12 @@ async function loadProfileUrls(pool) {
   const { rows } = await pool.query(FETCH_PROFILE_URLS_SQL);
 
   return rows
-    .map((row) => (row && typeof row.url === "string" ? row.url.trim() : ""))
-    .filter((value) => value !== "");
+    .map((row) => ({
+      url: row && typeof row.url === "string" ? row.url.trim() : "",
+      searchId:
+        row && typeof row.search_id === "string" ? row.search_id.trim() : "",
+    }))
+    .filter((value) => value.url !== "");
 }
 
 async function saveProfile(pool, profile) {
@@ -349,6 +353,7 @@ async function saveProfile(pool, profile) {
       profile.url,
       profile.links,
       profile.category,
+      profile.searchId || null,
     ]);
     await client.query("COMMIT");
   } catch (error) {
@@ -372,6 +377,9 @@ async function ensureProfilesTableSchema(pool) {
     );
     await client.query(
       "alter table if exists spotify.profiles add column if not exists category text"
+    );
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists search_id text"
     );
     await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
@@ -399,18 +407,18 @@ async function main() {
 
   try {
     await ensureProfilesTableSchema(pool);
-    const urls = await loadProfileUrls(pool);
+    const profilesToProcess = await loadProfileUrls(pool);
 
-    if (!urls.length) {
+    if (!profilesToProcess.length) {
       console.warn("No profiles found to process.");
       return;
     }
 
     console.log(
-      `Processing ${urls.length} profile${urls.length === 1 ? "" : "s"}.`
+      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}.`
     );
 
-    for (const url of urls) {
+    for (const { url, searchId } of profilesToProcess) {
       try {
         const uri = buildUriFromUrl(url);
 
@@ -429,7 +437,7 @@ async function main() {
 
         const links = extractLinksFromDescription(profile.about);
 
-        await saveProfile(pool, { ...profile, url, links });
+        await saveProfile(pool, { ...profile, url, links, searchId });
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
