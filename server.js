@@ -139,6 +139,21 @@ function buildUriFromUrl(url) {
   }
 }
 
+function skipDomains(url) {
+  const EXCLUDED_DOMAINS = ["patreon.com", "speaker.com"];
+
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    return EXCLUDED_DOMAINS.some(
+      (domain) =>
+        hostname === domain || hostname.endsWith(`.${domain}`)
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
 function extractLinksFromDescription(description) {
   if (typeof description !== "string" || description.trim() === "") {
     return "";
@@ -147,7 +162,10 @@ function extractLinksFromDescription(description) {
   const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
   const matches = description.match(urlRegex) || [];
 
-  return matches.map((match) => match.trim()).filter(Boolean).join("◙");
+  return matches
+    .map((match) => match.trim())
+    .filter((match) => Boolean(match) && !skipDomains(match))
+    .join("◙");
 }
 
 function normalizeUri(uriOrUrl) {
