@@ -17,6 +17,9 @@ const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 const QUERY_SHOW_METADATA_HASH =
   "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a";
 
+const QUERY_EPISODE_DESCRIPTION_HASH =
+  "02c1aaa6f6b0ace98debeb164ed9958174dc3cca8010533ea7d14a48ed4a6d7d";
+
 const SCRAPE_NINJA_ENDPOINT = "https://scrapeninja.p.rapidapi.com/scrape";
 const SCRAPE_NINJA_HOST = "scrapeninja.p.rapidapi.com";
 const DEFAULT_SCRAPE_NINJA_API_KEY =
@@ -265,6 +268,7 @@ function buildShowRequestBody(uri) {
 
 function buildEpisodeRequestBody(uri) {
   const normalizedUri = normalizeUri(uri);
+  console.log(uri)
 
   if (!normalizedUri) {
     throw new Error(
@@ -275,8 +279,12 @@ function buildEpisodeRequestBody(uri) {
   return {
     variables: { uri: normalizedUri },
     operationName: "getEpisodeDescription",
-    query:
-      "query getEpisodeDescription($uri: ID!) { episodeUnionV2(uri: $uri) { __typename ... on Episode { htmlDescription } ... on UnknownEpisode { htmlDescription } } }",
+    extensions: {
+      persistedQuery: {
+        version: 1,
+        sha256Hash: QUERY_EPISODE_DESCRIPTION_HASH,
+      },
+    },
   };
 }
 
@@ -556,8 +564,7 @@ async function main() {
     }
 
     console.log(
-      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}${
-        jsonPath ? " from JSON file." : "."
+      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}${jsonPath ? " from JSON file." : "."
       }`
     );
 
