@@ -75,6 +75,59 @@ async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
 }
 
+function buildOpenUrlFromUri(uri) {
+  if (typeof uri !== "string") {
+    return "";
+  }
+
+  const match = uri.match(/^spotify:(show|episode):([a-zA-Z0-9]+)$/);
+
+  if (!match) {
+    return "";
+  }
+
+  const [, resourceType, resourceId] = match;
+  return `https://open.spotify.com/${resourceType}/${resourceId}`;
+}
+
+async function loadProfilesFromJsonFile(filePath) {
+  if (!filePath) {
+    return [];
+  }
+
+  try {
+    const resolvedPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(process.cwd(), filePath);
+    const raw = await fs.readFile(resolvedPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const responses = Array.isArray(parsed) ? parsed : [parsed];
+
+    return responses
+      .map((responseJson) => {
+        const showUri =
+          responseJson?.data?.podcastUnionV2?.uri ||
+          responseJson?.data?.podcastUnionV2?.header?.data?.uri;
+        const sharedUrl = responseJson?.data?.podcastUnionV2?.share?.url;
+        const url =
+          buildOpenUrlFromUri(showUri) ||
+          (typeof sharedUrl === "string" ? sharedUrl.trim() : "");
+
+        return {
+          url,
+          searchId: "",
+          responseJson,
+        };
+      })
+      .filter((profile) => profile.url);
+  } catch (error) {
+    console.warn(
+      `Failed to load profiles from JSON file "${filePath}": ${error.message}`
+    );
+    return [];
+  }
+}
+
 async function loadHeaderOverrides() {
   try {
     const raw = await fs.readFile(HEADERS_FILE, "utf-8");
@@ -481,6 +534,9 @@ async function ensureProfilesTableSchema(pool) {
 async function main() {
   await ensureDataDir();
 
+  const jsonArgIndex = process.argv.indexOf("--json");
+  const jsonPath = jsonArgIndex !== -1 ? process.argv[jsonArgIndex + 1] : null;
+
   const headerOverrides = await loadHeaderOverrides();
   const headers = buildRequestHeaders(headerOverrides);
 
@@ -490,7 +546,9 @@ async function main() {
 
   try {
     await ensureProfilesTableSchema(pool);
-    const profilesToProcess = await loadProfileUrls(pool);
+    const profilesToProcess = jsonPath
+      ? await loadProfilesFromJsonFile(jsonPath)
+      : await loadProfileUrls(pool);
 
     if (!profilesToProcess.length) {
       console.warn("No profiles found to process.");
@@ -498,19 +556,21 @@ async function main() {
     }
 
     console.log(
-      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}.`
+      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}${
+        jsonPath ? " from JSON file." : "."
+      }`
     );
 
-    for (const { url, searchId } of profilesToProcess) {
+    for (const { url, searchId, responseJson: preload } of profilesToProcess) {
       try {
-        const uri = buildUriFromUrl(url);
+        const uri = preload ? null : buildUriFromUrl(url);
 
-        if (!uri) {
+        if (!preload && !uri) {
           console.warn(`Could not build Spotify URI from URL: ${url}`);
           continue;
         }
 
-        const responseJson = await fetchShowMetadata(headers, uri);
+        const responseJson = preload || (await fetchShowMetadata(headers, uri));
         const profile = parseProfileResponse(responseJson);
 
         if (!profile) {
