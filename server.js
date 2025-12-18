@@ -14,6 +14,9 @@ const HEADERS_FILE = path.join(DATA_DIR, "headers.json");
 
 const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 
+const QUERY_SHOW_METADATA_HASH =
+  "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a";
+
 const SCRAPE_NINJA_ENDPOINT = "https://scrapeninja.p.rapidapi.com/scrape";
 const SCRAPE_NINJA_HOST = "scrapeninja.p.rapidapi.com";
 const DEFAULT_SCRAPE_NINJA_API_KEY =
@@ -33,7 +36,7 @@ const DB_CONFIG = {
 const FETCH_PROFILE_URLS_SQL =
   "select url, search_id from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category, search_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category, search_id, episode_description) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -201,12 +204,28 @@ function buildShowRequestBody(uri) {
     extensions: {
       persistedQuery: {
         version: 1,
-        sha256Hash: "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a",
+        sha256Hash: QUERY_SHOW_METADATA_HASH,
       },
     },
   };
 }
 
+function buildEpisodeRequestBody(uri) {
+  const normalizedUri = normalizeUri(uri);
+
+  if (!normalizedUri) {
+    throw new Error(
+      "Invalid Spotify episode identifier. Provide a spotify: URI or an open.spotify.com URL."
+    );
+  }
+
+  return {
+    variables: { uri: normalizedUri },
+    operationName: "getEpisodeDescription",
+    query:
+      "query getEpisodeDescription($uri: ID!) { episodeUnionV2(uri: $uri) { __typename ... on Episode { htmlDescription } ... on UnknownEpisode { htmlDescription } } }",
+  };
+}
 
 function parseProfileResponse(responseJson) {
   if (Array.isArray(responseJson?.errors) && responseJson.errors.length) {
@@ -277,7 +296,29 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews, category };
 }
 
-async function fetchShowMetadata(headers, uri) {
+function extractEpisodeUris(responseJson) {
+  const episodes =
+    responseJson?.data?.podcastUnionV2?.episodesV2?.items || [];
+
+  return episodes
+    .map((episode) => {
+      const uri = episode?.entity?.data?.uri;
+      return typeof uri === "string" ? uri.trim() : "";
+    })
+    .filter((uri) => uri !== "");
+}
+
+function parseEpisodeDescription(responseJson) {
+  const rawDescription = responseJson?.data?.episodeUnionV2?.htmlDescription;
+
+  if (typeof rawDescription !== "string") {
+    return "";
+  }
+
+  return rawDescription.trim();
+}
+
+async function postSpotifyRequest(headers, body) {
   if (USE_SCRAPE_NINJA) {
     const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
       method: "POST",
@@ -290,7 +331,7 @@ async function fetchShowMetadata(headers, uri) {
         url: API_URL,
         method: "POST",
         headers,
-        body: JSON.stringify(buildShowRequestBody(uri)),
+        body: JSON.stringify(body),
       }),
     });
 
@@ -314,7 +355,7 @@ async function fetchShowMetadata(headers, uri) {
   const response = await fetch(API_URL, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildShowRequestBody(uri)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -325,6 +366,15 @@ async function fetchShowMetadata(headers, uri) {
   }
 
   return response.json();
+}
+
+
+async function fetchShowMetadata(headers, uri) {
+  return postSpotifyRequest(headers, buildShowRequestBody(uri));
+}
+
+async function fetchEpisodeMetadata(headers, uri) {
+  return postSpotifyRequest(headers, buildEpisodeRequestBody(uri));
 }
 
 async function loadProfileUrls(pool) {
@@ -365,6 +415,7 @@ async function saveProfile(pool, profile) {
       profile.links,
       profile.category,
       profile.searchId || null,
+      profile.episodeDescription || null,
     ]);
     await client.query("COMMIT");
   } catch (error) {
@@ -391,6 +442,9 @@ async function ensureProfilesTableSchema(pool) {
     );
     await client.query(
       "alter table if exists spotify.profiles add column if not exists search_id text"
+    );
+    await client.query(
+      "alter table if exists spotify.profiles add column if not exists episode_description text"
     );
     await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
@@ -446,9 +500,9 @@ async function main() {
           continue;
         }
 
-        const links = extractLinksFromDescription(profile.about);
-
-        await saveProfile(pool, { ...profile, url, links, searchId });
+        await client.query(
+          "alter table if exists spotify.profiles add column if not exists episode_description text"
+        );
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
