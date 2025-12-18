@@ -228,16 +228,7 @@ function buildEpisodeRequestBody(uri) {
 }
 
 function parseProfileResponse(responseJson) {
-  if (Array.isArray(responseJson?.errors) && responseJson.errors.length) {
-    const message = responseJson.errors
-      .map((error) =>
-        typeof error?.message === "string" ? error.message.trim() : ""
-      )
-      .filter(Boolean)
-      .join("; ");
-
-    throw new Error(message || "Spotify API returned an error response.");
-  }
+  assertNoGraphQlErrors(responseJson, "show metadata");
 
   const podcast = responseJson?.data?.podcastUnionV2;
   if (!podcast || typeof podcast !== "object") {
@@ -309,13 +300,39 @@ function extractEpisodeUris(responseJson) {
 }
 
 function parseEpisodeDescription(responseJson) {
-  const rawDescription = responseJson?.data?.episodeUnionV2?.htmlDescription;
+   assertNoGraphQlErrors(responseJson, "episode metadata");
 
+  const rawDescription = responseJson?.data?.episodeUnionV2?.htmlDescription;
   if (typeof rawDescription !== "string") {
     return "";
   }
 
   return rawDescription.trim();
+}
+
+function assertNoGraphQlErrors(responseJson, context) {
+  if (!Array.isArray(responseJson?.errors) || responseJson.errors.length === 0) {
+    return;
+  }
+
+  const message = responseJson.errors
+    .map((error) =>
+      typeof error?.message === "string" ? error.message.trim() : ""
+    )
+    .filter(Boolean)
+    .join("; ");
+
+  if (/client is not defined/i.test(message)) {
+    throw new Error(
+      `Spotify GraphQL error while fetching ${context}: ${message}. This usually means the authorization or client-token headers are missing or expired. Update SPOTIFY_AUTHORIZATION and SPOTIFY_CLIENT_TOKEN (or data/headers.json).`
+    );
+  }
+
+  throw new Error(
+    message
+      ? `Spotify GraphQL error while fetching ${context}: ${message}`
+      : `Spotify API returned an error response while fetching ${context}.`
+  );
 }
 
 async function postSpotifyRequest(headers, body) {
