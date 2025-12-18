@@ -16,6 +16,8 @@ const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 
 const QUERY_SHOW_METADATA_HASH =
   "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a";
+const QUERY_EPISODE_DESCRIPTION_HASH =
+  "8a62dbdeb7bd79605d7d68b01bcdf83f08bc6c6287ee1665ba012c748a4cf1f3";
 
 const SCRAPE_NINJA_ENDPOINT = "https://scrapeninja.p.rapidapi.com/scrape";
 const SCRAPE_NINJA_HOST = "scrapeninja.p.rapidapi.com";
@@ -60,16 +62,16 @@ const DEFAULT_HEADERS = {
   priority: "u=1, i",
   referer: "https://open.spotify.com/",
   "sec-ch-ua":
-    '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+    '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
   "sec-ch-ua-mobile": "?0",
   "sec-ch-ua-platform": '"Windows"',
   "sec-fetch-dest": "empty",
   "sec-fetch-mode": "cors",
   "sec-fetch-site": "same-site",
-  "spotify-app-version": "1.2.78.120.g186ece09",
+  "spotify-app-version": "1.2.80.168.g85ab0834",
   "user-agent":
     process.env.USER_AGENT ||
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
 };
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -274,9 +276,13 @@ function buildEpisodeRequestBody(uri) {
 
   return {
     variables: { uri: normalizedUri },
-    operationName: "getEpisodeDescription",
-    query:
-      "query getEpisodeDescription($uri: ID!) { episodeUnionV2(uri: $uri) { __typename ... on Episode { htmlDescription } ... on UnknownEpisode { htmlDescription } } }",
+    operationName: "getEpisodeOrChapter",
+    extensions: {
+      persistedQuery: {
+        version: 1,
+        sha256Hash: QUERY_EPISODE_DESCRIPTION_HASH,
+      },
+    },
   };
 }
 
