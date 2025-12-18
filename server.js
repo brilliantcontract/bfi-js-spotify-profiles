@@ -14,12 +14,6 @@ const HEADERS_FILE = path.join(DATA_DIR, "headers.json");
 
 const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 
-const QUERY_SHOW_METADATA_HASH =
-  "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a";
-
-const QUERY_EPISODE_DESCRIPTION_HASH =
-  "02c1aaa6f6b0ace98debeb164ed9958174dc3cca8010533ea7d14a48ed4a6d7d";
-
 const SCRAPE_NINJA_ENDPOINT = "https://scrapeninja.p.rapidapi.com/scrape";
 const SCRAPE_NINJA_HOST = "scrapeninja.p.rapidapi.com";
 const DEFAULT_SCRAPE_NINJA_API_KEY =
@@ -39,7 +33,7 @@ const DB_CONFIG = {
 const FETCH_PROFILE_URLS_SQL =
   "select url, search_id from spotify.not_scraped_profiles_vw";
 const INSERT_PROFILE_SQL =
-  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category, search_id, episode_description) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) on conflict (url) do nothing";
+  "insert into spotify.profiles(show_name, host_name, about, rate, reviews, url, links, category, search_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (url) do nothing";
 
 function buildAuthorizationHeader(value) {
   if (!value || typeof value !== "string") {
@@ -76,59 +70,6 @@ const DEFAULT_HEADERS = {
 };
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
-function buildOpenUrlFromUri(uri) {
-  if (typeof uri !== "string") {
-    return "";
-  }
-
-  const match = uri.match(/^spotify:(show|episode):([a-zA-Z0-9]+)$/);
-
-  if (!match) {
-    return "";
-  }
-
-  const [, resourceType, resourceId] = match;
-  return `https://open.spotify.com/${resourceType}/${resourceId}`;
-}
-
-async function loadProfilesFromJsonFile(filePath) {
-  if (!filePath) {
-    return [];
-  }
-
-  try {
-    const resolvedPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(process.cwd(), filePath);
-    const raw = await fs.readFile(resolvedPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const responses = Array.isArray(parsed) ? parsed : [parsed];
-
-    return responses
-      .map((responseJson) => {
-        const showUri =
-          responseJson?.data?.podcastUnionV2?.uri ||
-          responseJson?.data?.podcastUnionV2?.header?.data?.uri;
-        const sharedUrl = responseJson?.data?.podcastUnionV2?.share?.url;
-        const url =
-          buildOpenUrlFromUri(showUri) ||
-          (typeof sharedUrl === "string" ? sharedUrl.trim() : "");
-
-        return {
-          url,
-          searchId: "",
-          responseJson,
-        };
-      })
-      .filter((profile) => profile.url);
-  } catch (error) {
-    console.warn(
-      `Failed to load profiles from JSON file "${filePath}": ${error.message}`
-    );
-    return [];
-  }
 }
 
 async function loadHeaderOverrides() {
@@ -260,29 +201,7 @@ function buildShowRequestBody(uri) {
     extensions: {
       persistedQuery: {
         version: 1,
-        sha256Hash: QUERY_SHOW_METADATA_HASH,
-      },
-    },
-  };
-}
-
-function buildEpisodeRequestBody(uri) {
-  const normalizedUri = normalizeUri(uri);
-  console.log(uri)
-
-  if (!normalizedUri) {
-    throw new Error(
-      "Invalid Spotify episode identifier. Provide a spotify: URI or an open.spotify.com URL."
-    );
-  }
-
-  return {
-    variables: { uri: normalizedUri },
-    operationName: "getEpisodeDescription",
-    extensions: {
-      persistedQuery: {
-        version: 1,
-        sha256Hash: QUERY_EPISODE_DESCRIPTION_HASH,
+        sha256Hash: "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a",
       },
     },
   };
@@ -290,7 +209,16 @@ function buildEpisodeRequestBody(uri) {
 
 
 function parseProfileResponse(responseJson) {
-  assertNoGraphQlErrors(responseJson, "show metadata");
+  if (Array.isArray(responseJson?.errors) && responseJson.errors.length) {
+    const message = responseJson.errors
+      .map((error) =>
+        typeof error?.message === "string" ? error.message.trim() : ""
+      )
+      .filter(Boolean)
+      .join("; ");
+
+    throw new Error(message || "Spotify API returned an error response.");
+  }
 
   const podcast = responseJson?.data?.podcastUnionV2;
   if (!podcast || typeof podcast !== "object") {
@@ -349,56 +277,7 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews, category };
 }
 
-function extractEpisodeUris(responseJson) {
-  const episodes =
-    responseJson?.data?.podcastUnionV2?.episodesV2?.items || [];
-
-  return episodes
-    .map((episode) => {
-      const uri = episode?.entity?.data?.uri;
-      return typeof uri === "string" ? uri.trim() : "";
-    })
-    .filter((uri) => uri !== "");
-}
-
-function parseEpisodeDescription(responseJson) {
-  assertNoGraphQlErrors(responseJson, "episode metadata");
-
-  const rawDescription = responseJson?.data?.episodeUnionV2?.htmlDescription;
-
-  if (typeof rawDescription !== "string") {
-    return "";
-  }
-
-  return rawDescription.trim();
-}
-
-function assertNoGraphQlErrors(responseJson, context) {
-  if (!Array.isArray(responseJson?.errors) || responseJson.errors.length === 0) {
-    return;
-  }
-
-  const message = responseJson.errors
-    .map((error) =>
-      typeof error?.message === "string" ? error.message.trim() : ""
-    )
-    .filter(Boolean)
-    .join("; ");
-
-  if (/client is not defined/i.test(message)) {
-    throw new Error(
-      `Spotify GraphQL error while fetching ${context}: ${message}. This usually means the authorization or client-token headers are missing or expired. Update SPOTIFY_AUTHORIZATION and SPOTIFY_CLIENT_TOKEN (or data/headers.json).`
-    );
-  }
-
-  throw new Error(
-    message
-      ? `Spotify GraphQL error while fetching ${context}: ${message}`
-      : `Spotify API returned an error response while fetching ${context}.`
-  );
-}
-
-async function postSpotifyRequest(headers, body) {
+async function fetchShowMetadata(headers, uri) {
   if (USE_SCRAPE_NINJA) {
     const scrapeResponse = await fetch(SCRAPE_NINJA_ENDPOINT, {
       method: "POST",
@@ -411,7 +290,7 @@ async function postSpotifyRequest(headers, body) {
         url: API_URL,
         method: "POST",
         headers,
-        body: JSON.stringify(body),
+        body: JSON.stringify(buildShowRequestBody(uri)),
       }),
     });
 
@@ -435,7 +314,7 @@ async function postSpotifyRequest(headers, body) {
   const response = await fetch(API_URL, {
     method: "POST",
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(buildShowRequestBody(uri)),
   });
 
   if (!response.ok) {
@@ -446,14 +325,6 @@ async function postSpotifyRequest(headers, body) {
   }
 
   return response.json();
-}
-
-async function fetchShowMetadata(headers, uri) {
-  return postSpotifyRequest(headers, buildShowRequestBody(uri));
-}
-
-async function fetchEpisodeMetadata(headers, uri) {
-  return postSpotifyRequest(headers, buildEpisodeRequestBody(uri));
 }
 
 async function loadProfileUrls(pool) {
@@ -494,7 +365,6 @@ async function saveProfile(pool, profile) {
       profile.links,
       profile.category,
       profile.searchId || null,
-      profile.episodeDescription || null,
     ]);
     await client.query("COMMIT");
   } catch (error) {
@@ -523,9 +393,6 @@ async function ensureProfilesTableSchema(pool) {
       "alter table if exists spotify.profiles add column if not exists search_id text"
     );
     await client.query(
-      "alter table if exists spotify.profiles add column if not exists episode_description text"
-    );
-    await client.query(
       "create unique index if not exists profiles_url_key on spotify.profiles(url)"
     );
     await client.query("COMMIT");
@@ -542,9 +409,6 @@ async function ensureProfilesTableSchema(pool) {
 async function main() {
   await ensureDataDir();
 
-  const jsonArgIndex = process.argv.indexOf("--json");
-  const jsonPath = jsonArgIndex !== -1 ? process.argv[jsonArgIndex + 1] : null;
-
   const headerOverrides = await loadHeaderOverrides();
   const headers = buildRequestHeaders(headerOverrides);
 
@@ -554,9 +418,7 @@ async function main() {
 
   try {
     await ensureProfilesTableSchema(pool);
-    const profilesToProcess = jsonPath
-      ? await loadProfilesFromJsonFile(jsonPath)
-      : await loadProfileUrls(pool);
+    const profilesToProcess = await loadProfileUrls(pool);
 
     if (!profilesToProcess.length) {
       console.warn("No profiles found to process.");
@@ -564,20 +426,19 @@ async function main() {
     }
 
     console.log(
-      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}${jsonPath ? " from JSON file." : "."
-      }`
+      `Processing ${profilesToProcess.length} profile${profilesToProcess.length === 1 ? "" : "s"}.`
     );
 
-    for (const { url, searchId, responseJson: preload } of profilesToProcess) {
+    for (const { url, searchId } of profilesToProcess) {
       try {
-        const uri = preload ? null : buildUriFromUrl(url);
+        const uri = buildUriFromUrl(url);
 
-        if (!preload && !uri) {
+        if (!uri) {
           console.warn(`Could not build Spotify URI from URL: ${url}`);
           continue;
         }
 
-        const responseJson = preload || (await fetchShowMetadata(headers, uri));
+        const responseJson = await fetchShowMetadata(headers, uri);
         const profile = parseProfileResponse(responseJson);
 
         if (!profile) {
@@ -585,38 +446,9 @@ async function main() {
           continue;
         }
 
-        const episodeUris = extractEpisodeUris(responseJson);
-        let episodeDescription = "";
-
-        for (const episodeUri of episodeUris) {
-          try {
-            const episodeResponse = await fetchEpisodeMetadata(
-              headers,
-              episodeUri
-            );
-
-            const parsedDescription = parseEpisodeDescription(episodeResponse);
-
-            if (parsedDescription) {
-              episodeDescription = parsedDescription;
-              break;
-            }
-          } catch (error) {
-            console.warn(
-              `Failed to fetch episode description for URI "${episodeUri}": ${error.message}`
-            );
-          }
-        }
-
         const links = extractLinksFromDescription(profile.about);
 
-        await saveProfile(pool, {
-          ...profile,
-          url,
-          links,
-          searchId,
-          episodeDescription,
-        });
+        await saveProfile(pool, { ...profile, url, links, searchId });
         console.log(`Saved profile for URL "${url}".`);
       } catch (error) {
         console.error(`Failed to process URL "${url}": ${error.message}`);
