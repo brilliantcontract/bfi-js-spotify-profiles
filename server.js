@@ -17,8 +17,8 @@ const API_URL = "https://api-partner.spotify.com/pathfinder/v2/query";
 const QUERY_SHOW_METADATA_HASH =
   "26d0c98fef216dad02d31c359075c07d605974af8d82834f26e90f917f32555a";
 
-const QUERY_EPISODE_DESCRIPTION_HASH =
-  "02c1aaa6f6b0ace98debeb164ed9958174dc3cca8010533ea7d14a48ed4a6d7d";
+const QUERY_EPISODES_HASH =
+  "8e2826c5993383566cc08bf9f5d3301b69513c3f6acb8d706286855e57bf44b2";
 
 const SCRAPE_NINJA_ENDPOINT = "https://scrapeninja.p.rapidapi.com/scrape";
 const SCRAPE_NINJA_HOST = "scrapeninja.p.rapidapi.com";
@@ -286,23 +286,22 @@ function buildShowRequestBody(uri) {
   };
 }
 
-function buildEpisodeRequestBody(uri) {
+function buildEpisodesRequestBody(uri, { offset = 0, limit = 50 } = {}) {
   const normalizedUri = normalizeUri(uri);
-  console.log(uri)
 
   if (!normalizedUri) {
     throw new Error(
-      "Invalid Spotify episode identifier. Provide a spotify: URI or an open.spotify.com URL."
+      "Invalid Spotify show identifier. Provide a spotify: URI or an open.spotify.com URL."
     );
   }
 
   return {
-    variables: { uri: normalizedUri },
-    operationName: "getEpisodeDescription",
+    variables: { uri: normalizedUri, offset, limit },
+    operationName: "queryPodcastEpisodes",
     extensions: {
       persistedQuery: {
         version: 1,
-        sha256Hash: QUERY_EPISODE_DESCRIPTION_HASH,
+        sha256Hash: QUERY_EPISODES_HASH,
       },
     },
   };
@@ -369,28 +368,27 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews, category };
 }
 
-function extractEpisodeUris(responseJson) {
-  const episodes =
-    responseJson?.data?.podcastUnionV2?.episodesV2?.items || [];
-
-  return episodes
-    .map((episode) => {
-      const uri = episode?.entity?.data?.uri;
-      return typeof uri === "string" ? uri.trim() : "";
-    })
-    .filter((uri) => uri !== "");
-}
-
 function parseEpisodeDescription(responseJson) {
   assertNoGraphQlErrors(responseJson, "episode metadata");
 
-  const rawDescription = responseJson?.data?.episodeUnionV2?.htmlDescription;
+  const items = responseJson?.data?.podcastUnionV2?.episodesV2?.items;
 
-  if (typeof rawDescription !== "string") {
+  if (!Array.isArray(items)) {
     return "";
   }
 
-  return rawDescription.trim();
+  for (const item of items) {
+    const rawDescription =
+      item?.entity?.data?.description ??
+      item?.entity?.description ??
+      item?.description;
+
+    if (typeof rawDescription === "string" && rawDescription.trim() !== "") {
+      return rawDescription.trim();
+    }
+  }
+
+  return "";
 }
 
 function assertNoGraphQlErrors(responseJson, context) {
@@ -472,8 +470,8 @@ async function fetchShowMetadata(headers, uri) {
   return postSpotifyRequest(headers, buildShowRequestBody(uri));
 }
 
-async function fetchEpisodeMetadata(headers, uri) {
-  return postSpotifyRequest(headers, buildEpisodeRequestBody(uri));
+async function fetchEpisodes(headers, uri, options) {
+  return postSpotifyRequest(headers, buildEpisodesRequestBody(uri, options));
 }
 
 function normalizeSearchId(value) {
@@ -609,25 +607,16 @@ async function main() {
           continue;
         }
 
-        const episodeUris = extractEpisodeUris(responseJson);
         let episodeDescription = "";
+        const showUri = responseJson?.data?.podcastUnionV2?.uri || uri;
 
-        for (const episodeUri of episodeUris) {
+        if (showUri) {
           try {
-            const episodeResponse = await fetchEpisodeMetadata(
-              headers,
-              episodeUri
-            );
-
-            const parsedDescription = parseEpisodeDescription(episodeResponse);
-
-            if (parsedDescription) {
-              episodeDescription = parsedDescription;
-              break;
-            }
+            const episodeResponse = await fetchEpisodes(headers, showUri);
+            episodeDescription = parseEpisodeDescription(episodeResponse);
           } catch (error) {
             console.warn(
-              `Failed to fetch episode description for URI "${episodeUri}": ${error.message}`
+              `Failed to fetch episode description for URI "${showUri}": ${error.message}`
             );
           }
         }
