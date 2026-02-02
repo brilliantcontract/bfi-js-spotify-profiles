@@ -266,6 +266,23 @@ function extractLinksFromDescription(description) {
   return Array.from(new Set(filtered)).join("◙");
 }
 
+function combineLinks(...linkValues) {
+  const parts = linkValues.flatMap((value) => {
+    if (typeof value !== "string") {
+      return [];
+    }
+
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      return [];
+    }
+
+    return trimmed.split("◙").filter(Boolean);
+  });
+
+  return Array.from(new Set(parts)).join("◙");
+}
+
 function normalizeUri(uriOrUrl) {
   if (typeof uriOrUrl !== "string") {
     return null;
@@ -664,7 +681,9 @@ async function main() {
           }
         }
 
-        const links = extractLinksFromDescription(profile.about);
+        const aboutLinks = extractLinksFromDescription(profile.about);
+        const episodeLinks = extractLinksFromDescription(episodeDescription);
+        const links = combineLinks(aboutLinks, episodeLinks);
 
         await saveProfile(pool, {
           ...profile,
