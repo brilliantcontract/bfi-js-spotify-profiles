@@ -368,6 +368,26 @@ function parseProfileResponse(responseJson) {
   return { showName, hostName, about, rate, reviews, category };
 }
 
+function removeTimestampsSection(description) {
+  if (typeof description !== "string") {
+    return "";
+  }
+
+  const trimmed = description.trim();
+
+  if (trimmed === "") {
+    return "";
+  }
+
+  const timestampsIndex = trimmed.search(/\bTimestamps\b/i);
+
+  if (timestampsIndex === -1) {
+    return trimmed;
+  }
+
+  return trimmed.slice(0, timestampsIndex).trim();
+}
+
 function parseEpisodeDescription(responseJson) {
   assertNoGraphQlErrors(responseJson, "episode metadata");
 
@@ -377,18 +397,22 @@ function parseEpisodeDescription(responseJson) {
     return "";
   }
 
+  const descriptions = [];
+
   for (const item of items) {
     const rawDescription =
       item?.entity?.data?.description ??
       item?.entity?.description ??
       item?.description;
 
-    if (typeof rawDescription === "string" && rawDescription.trim() !== "") {
-      return rawDescription.trim();
+    const cleaned = removeTimestampsSection(rawDescription);
+
+    if (cleaned) {
+      descriptions.push(cleaned);
     }
   }
 
-  return "";
+  return descriptions.join("◙");
 }
 
 function assertNoGraphQlErrors(responseJson, context) {
