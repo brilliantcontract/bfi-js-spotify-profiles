@@ -199,7 +199,27 @@ function buildUriFromUrl(url) {
 }
 
 function skipDomains(url) {
-  const EXCLUDED_DOMAINS = ["patreon.com", "speaker.com"];
+  const EXCLUDED_DOMAINS = [
+    "acast.com",
+    "adswizz.com",
+    "amazon.com",
+    "amzn.to",
+    "apple.com",
+    "barnesandnoble.com",
+    "bookshop.org",
+    "books2read.com",
+    "buymeacoffee.com",
+    "buzzsprout.com",
+    "creativecommons.org",
+    "megaphone.fm",
+    "omnystudio.com",
+    "patreon.com",
+    "podcastchoices.com",
+    "redbubble.com",
+    "speaker.com",
+    "spotify.com",
+  ];
+
 
   try {
     const hostname = new URL(url).hostname.toLowerCase();
@@ -456,27 +476,31 @@ async function fetchEpisodeMetadata(headers, uri) {
   return postSpotifyRequest(headers, buildEpisodeRequestBody(uri));
 }
 
+function normalizeSearchId(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+
+  return value;
+}
+
 async function loadProfileUrls(pool) {
   const { rows } = await pool.query(FETCH_PROFILE_URLS_SQL);
 
   return rows
-    .map((row) => ({
-      url: row && typeof row.url === "string" ? row.url.trim() : "",
-      searchId: (() => {
-        const rawSearchId = row?.search_id;
+    .map((row) => {
+      const url = row && typeof row.url === "string" ? row.url.trim() : "";
+      const rawSearchId = row?.search_id ?? row?.searchId;
+      const searchId = normalizeSearchId(rawSearchId);
 
-        if (typeof rawSearchId === "string") {
-          return rawSearchId.trim();
-        }
-
-        if (typeof rawSearchId === "number" && Number.isFinite(rawSearchId)) {
-          return String(rawSearchId);
-        }
-
-        return "";
-      })(),
-    }))
-    .filter((value) => value.url !== "");
+      return { url, searchId };
+    })
+    .filter(({ url }) => url !== "");
 }
 
 async function saveProfile(pool, profile) {
