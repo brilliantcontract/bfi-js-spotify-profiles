@@ -667,8 +667,7 @@ async function main() {
 
         let episodeDescription = "";
         const showUri =
-          responseJson?.data?.podcastUnionV2?.uri ||
-          responseJson?.data?.podcastUnionV2?.header?.data?.uri ||
+          responseJson?.data?.podcastUnionV2?.episodesV2?.items?.[0]?.entity?._uri ??
           uri;
 
         if (showUri) {
