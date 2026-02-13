@@ -220,17 +220,35 @@ function skipDomains(url) {
   ];
 
 
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-
-    return EXCLUDED_DOMAINS.some(
-      (domain) =>
-        hostname === domain || hostname.endsWith(`.${domain}`)
-    );
-  } catch (error) {
+  if (typeof url !== "string") {
     return false;
   }
+
+  const sanitizedUrl = url.trim().replace(/[),.;!?]+$/, "");
+  if (sanitizedUrl === "") {
+    return false;
+  }
+
+  const parseUrl = (value) => {
+    try {
+      return new URL(value);
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const parsedUrl = parseUrl(sanitizedUrl) || parseUrl(`https://${sanitizedUrl}`);
+  if (!parsedUrl) {
+    return false;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  return EXCLUDED_DOMAINS.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+  );
 }
+
 
 function extractLinksFromDescription(description) {
   if (typeof description !== "string" || description.trim() === "") {
