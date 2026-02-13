@@ -216,7 +216,6 @@ function skipDomains(url) {
     "patreon.com",
     "podcastchoices.com",
     "redbubble.com",
-    "speaker.com",
     "spotify.com",
   ];
 
