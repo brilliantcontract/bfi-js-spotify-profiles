@@ -432,7 +432,6 @@ function parseEpisodeDescription(responseJson) {
     return "";
   }
 
-  const descriptions = [];
 
   for (const item of items) {
     const rawDescription =
@@ -443,11 +442,11 @@ function parseEpisodeDescription(responseJson) {
     const cleaned = removeTimestampsSection(rawDescription);
 
     if (cleaned) {
-      descriptions.push(cleaned);
+      return cleaned;
     }
   }
 
-  return descriptions.join("◙");
+  return "";
 }
 
 function assertNoGraphQlErrors(responseJson, context) {
@@ -667,7 +666,10 @@ async function main() {
         }
 
         let episodeDescription = "";
-        const showUri = responseJson?.data?.podcastUnionV2?.uri || uri;
+        const showUri =
+          responseJson?.data?.podcastUnionV2?.uri ||
+          responseJson?.data?.podcastUnionV2?.header?.data?.uri ||
+          uri;
 
         if (showUri) {
           try {
