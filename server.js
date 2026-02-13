@@ -224,10 +224,18 @@ function skipDomains(url) {
     return false;
   }
 
-  const sanitizedUrl = url.trim().replace(/[),.;!?]+$/, "");
+  const sanitizedUrl = url
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .trim()
+    .replace(/^[([{"'`]+/, "")
+    .replace(/[),.;!?\]}'"`]+$/, "");
+
   if (sanitizedUrl === "") {
     return false;
   }
+
+  const match = sanitizedUrl.match(/(?:https?:\/\/|www\.)[^\s"'◙]+/i);
+  const candidateUrl = match ? match[0] : sanitizedUrl;
 
   const parseUrl = (value) => {
     try {
@@ -237,7 +245,8 @@ function skipDomains(url) {
     }
   };
 
-  const parsedUrl = parseUrl(sanitizedUrl) || parseUrl(`https://${sanitizedUrl}`);
+  const parsedUrl =
+    parseUrl(candidateUrl) || parseUrl(`https://${candidateUrl}`);
   if (!parsedUrl) {
     return false;
   }
@@ -248,6 +257,7 @@ function skipDomains(url) {
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
   );
 }
+
 
 
 function extractLinksFromDescription(description) {
