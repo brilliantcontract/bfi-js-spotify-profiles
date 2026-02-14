@@ -218,6 +218,13 @@ function skipDomains(url) {
     "redbubble.com",
     "spotify.com",
   ];
+  const excludedDomainRegexes = EXCLUDED_DOMAINS.map(
+    (domain) =>
+      new RegExp(
+        `^(?:https?:\\/\\/)?(?:www\\.)?(?:[a-z0-9-]+\\.)*${domain.replace(/\\./g, "\\\\.")}(?:\\/|$)`,
+        "i"
+      )
+  );
 
 
   if (typeof url !== "string") {
@@ -255,7 +262,7 @@ function skipDomains(url) {
 
   return EXCLUDED_DOMAINS.some(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
-  );
+  ) || excludedDomainRegexes.some((regex) => regex.test(candidateUrl));
 }
 
 
