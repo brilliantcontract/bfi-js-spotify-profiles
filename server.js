@@ -218,14 +218,6 @@ function skipDomains(url) {
     "redbubble.com",
     "spotify.com",
   ];
-  const excludedDomainRegexes = EXCLUDED_DOMAINS.map(
-    (domain) =>
-      new RegExp(
-        `^(?:https?:\\/\\/)?(?:www\\.)?(?:[a-z0-9-]+\\.)*${domain.replace(/\\./g, "\\\\.")}(?:\\/|$)`,
-        "i"
-      )
-  );
-
 
   if (typeof url !== "string") {
     return false;
@@ -259,21 +251,19 @@ function skipDomains(url) {
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-  const matchedDomains = EXCLUDED_DOMAINS.filter(
-    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
-  );
+  const normalizedCandidateUrl = candidateUrl.toLowerCase();
 
-  if (matchedDomains.length > 0) {
-    return true;
-  }
+  return EXCLUDED_DOMAINS.some((domain) => {
+    const normalizedDomain = domain.toLowerCase();
 
-  const matchedRegexes = excludedDomainRegexes.filter((regex) =>
-    regex.test(candidateUrl)
-  );
-
-  return matchedRegexes.length > 0;
+    return (
+      hostname === normalizedDomain ||
+      hostname.endsWith(`.${normalizedDomain}`) ||
+      hostname.includes(normalizedDomain) ||
+      normalizedCandidateUrl.includes(normalizedDomain)
+    );
+  });
 }
-
 
 
 function extractLinksFromDescription(description) {
