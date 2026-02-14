@@ -259,10 +259,19 @@ function skipDomains(url) {
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-
-  return EXCLUDED_DOMAINS.some(
+  const matchedDomains = EXCLUDED_DOMAINS.filter(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
-  ) || excludedDomainRegexes.some((regex) => regex.test(candidateUrl));
+  );
+
+  if (matchedDomains.length > 0) {
+    return true;
+  }
+
+  const matchedRegexes = excludedDomainRegexes.filter((regex) =>
+    regex.test(candidateUrl)
+  );
+
+  return matchedRegexes.length > 0;
 }
 
 
