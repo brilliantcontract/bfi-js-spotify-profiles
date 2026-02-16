@@ -271,16 +271,11 @@ function extractLinksFromDescription(description) {
     return "";
   }
 
-  const urlRegex1 = /https?:\/\/[^\s"'◙]+/gi;
-  const urlRegex2 = /http?:\/\/[^\s"'◙]+/gi;
-  const urlRegex3 = /www\.[^\s"'◙]+/gi;
+  const urlRegex =
+    /(?:https?:\/\/|www\.)[^\s"'◙]+?(?=(?:https?:\/\/|www\.)|[\s"'◙]|$)/gi;
   const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
   const mentionRegex = /@[A-Za-z0-9_]+/g;
-  const urlMatches = [
-    ...(description.match(urlRegex1) || []),
-    ...(description.match(urlRegex2) || []),
-    ...(description.match(urlRegex3) || []),
-  ];
+  const urlMatches = description.match(urlRegex) || [];
   const emailMatches = description.match(emailRegex) || [];
   const mentionMatches = (description.match(mentionRegex) || []).filter(
     (mention) => !emailMatches.some((email) => email.includes(mention))
@@ -289,7 +284,8 @@ function extractLinksFromDescription(description) {
   const matches = [...urlMatches, ...emailMatches, ...mentionMatches];
 
   const filtered = matches.filter((value) => {
-    if (value.startsWith("@") || value.includes("@")) {
+    if (value.startsWith("@")) {
+
       return true;
     }
 
