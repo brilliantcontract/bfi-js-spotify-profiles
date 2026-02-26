@@ -135,7 +135,6 @@ async function loadHeaderOverrides() {
   try {
     const raw = await fs.readFile(HEADERS_FILE, "utf-8");
     const parsed = JSON.parse(raw);
-
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return {};
     }
@@ -271,16 +270,20 @@ function extractLinksFromDescription(description) {
     return "";
   }
 
-  console.log(description)
+  const normalizedDescription = description
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ");
+
   const urlRegex =
-    /(?:https?:\/\/|www\.)[^\s"'◙]+?(?=(?:https?:\/\/|www\.)|[\s"'◙]|$)/gi;
+    /(?:https?:\/\/|www\.)[^\s"'<>◙]+?(?=(?:https?:\/\/|www\.)|[\s"'<>◙]|$)/gi;
   const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
   const mentionRegex = /@[A-Za-z0-9_]+/g;
-  const urlMatches = description.match(urlRegex) || [];
-  const emailMatches = description.match(emailRegex) || [];
-  const mentionMatches = (description.match(mentionRegex) || []).filter(
+  const urlMatches = normalizedDescription.match(urlRegex) || [];
+  const emailMatches = normalizedDescription.match(emailRegex) || [];
+  const mentionMatches = (normalizedDescription.match(mentionRegex) || []).filter(
     (mention) => !emailMatches.some((email) => email.includes(mention))
   );
+
 
   const matches = [...urlMatches, ...emailMatches, ...mentionMatches];
 
@@ -389,8 +392,8 @@ function parseProfileResponse(responseJson) {
       ? podcast.publisher.name.trim()
       : "";
   const about =
-    typeof podcast?.description === "string" ? podcast.description.trim() : "";
-
+    typeof podcast?.htmlDescription === "string" ? podcast.htmlDescription.trim() : "";
+    
   const category = (() => {
     const topicItems = podcast?.topics?.items;
 
