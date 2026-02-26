@@ -271,22 +271,12 @@ function extractLinksFromDescription(description) {
     return "";
   }
 
-  const sanitizeExtractedUrl = (value) => {
-    if (typeof value !== "string") {
-      return "";
-    }
-
-    return value
-      .replace(/([A-Za-z]+:)$/g, "")
-      .replace(/[),.;!?\]}"'`]+$/g, "")
-      .trim();
-  };
-
+  console.log(description)
   const urlRegex =
     /(?:https?:\/\/|www\.)[^\s"'◙]+?(?=(?:https?:\/\/|www\.)|[\s"'◙]|$)/gi;
   const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
   const mentionRegex = /@[A-Za-z0-9_]+/g;
-  const urlMatches = (description.match(urlRegex) || []).map(sanitizeExtractedUrl);
+  const urlMatches = description.match(urlRegex) || [];
   const emailMatches = description.match(emailRegex) || [];
   const mentionMatches = (description.match(mentionRegex) || []).filter(
     (mention) => !emailMatches.some((email) => email.includes(mention))
@@ -296,38 +286,14 @@ function extractLinksFromDescription(description) {
 
   const filtered = matches.filter((value) => {
     if (value.startsWith("@")) {
+
       return true;
     }
 
-    return value !== "" && !skipDomains(value);
+    return !skipDomains(value);
   });
 
-  const deduped = [];
-  const seenMentions = new Set();
-  const seenLinks = new Set();
-
-  for (const value of filtered) {
-    if (value.startsWith("@")) {
-      const key = value.toLowerCase();
-
-      if (seenMentions.has(key)) {
-        continue;
-      }
-
-      seenMentions.add(key);
-      deduped.push(value);
-      continue;
-    }
-
-    if (seenLinks.has(value)) {
-      continue;
-    }
-
-    seenLinks.add(value);
-    deduped.push(value);
-  }
-
-  return deduped.join("◙");
+  return Array.from(new Set(filtered)).join("◙");
 }
 
 function combineLinks(...linkValues) {
@@ -344,32 +310,7 @@ function combineLinks(...linkValues) {
     return trimmed.split("◙").filter(Boolean);
   });
 
-  const deduped = [];
-  const seenMentions = new Set();
-  const seenLinks = new Set();
-
-  for (const value of parts) {
-    if (value.startsWith("@")) {
-      const key = value.toLowerCase();
-
-      if (seenMentions.has(key)) {
-        continue;
-      }
-
-      seenMentions.add(key);
-      deduped.push(value);
-      continue;
-    }
-
-    if (seenLinks.has(value)) {
-      continue;
-    }
-
-    seenLinks.add(value);
-    deduped.push(value);
-  }
-
-  return deduped.join("◙");
+  return Array.from(new Set(parts)).join("◙");
 }
 
 function normalizeUri(uriOrUrl) {
