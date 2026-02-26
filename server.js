@@ -269,7 +269,7 @@ function extractLinksFromDescription(description) {
   if (typeof description !== "string" || description.trim() === "") {
     return "";
   }
-
+  
   const normalizedDescription = description
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " ");
@@ -287,7 +287,11 @@ function extractLinksFromDescription(description) {
 
   const matches = [...urlMatches, ...emailMatches, ...mentionMatches];
 
-  const filtered = matches.filter((value) => {
+  const sanitizedMatches = matches
+    .map((value) => sanitizeLinkValue(value))
+    .filter(Boolean);
+
+  const filtered = sanitizedMatches.filter((value) => {
     if (value.startsWith("@")) {
 
       return true;
@@ -310,11 +314,40 @@ function combineLinks(...linkValues) {
       return [];
     }
 
-    return trimmed.split("◙").filter(Boolean);
+    return trimmed
+      .split("◙")
+      .map((part) => sanitizeLinkValue(part))
+      .filter(Boolean);
   });
 
   return Array.from(new Set(parts)).join("◙");
 }
+
+function sanitizeLinkValue(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .trim()
+    .replace(/^[([{"'`]+/, "");
+
+  if (trimmed === "") {
+    return "";
+  }
+
+  if (trimmed.startsWith("@")) {
+    return trimmed;
+  }
+
+  if (/^(https?:\/\/|www\.)/i.test(trimmed)) {
+    return trimmed.replace(/[^\p{L}\p{N}\-._~:/?#[\]@!$&'()*+,;=%]+$/gu, "");
+  }
+
+  return trimmed;
+}
+
 
 function normalizeUri(uriOrUrl) {
   if (typeof uriOrUrl !== "string") {
@@ -441,7 +474,7 @@ function removeTimestampsSection(description) {
   if (typeof description !== "string") {
     return "";
   }
-
+  
   const trimmed = description.trim();
 
   if (trimmed === "") {
@@ -469,10 +502,9 @@ function parseEpisodeDescription(responseJson) {
 
   for (const item of items) {
     const rawDescription =
-      item?.entity?.data?.description ??
-      item?.entity?.description ??
-      item?.description;
-
+      item?.entity?.data?.htmlDescription ??
+      item?.entity?.htmlDescription ??
+      item?.htmlDescription;
     const cleaned = removeTimestampsSection(rawDescription);
 
     if (cleaned) {
