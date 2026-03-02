@@ -269,7 +269,18 @@ function extractLinksFromDescription(description) {
   if (typeof description !== "string" || description.trim() === "") {
     return "";
   }
-  
+
+  const hrefRegex = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  const hrefMatches = [];
+  let hrefMatch;
+
+  while ((hrefMatch = hrefRegex.exec(description)) !== null) {
+    const hrefValue = hrefMatch[1] || hrefMatch[2] || hrefMatch[3] || "";
+    if (hrefValue) {
+      hrefMatches.push(hrefValue);
+    }
+  }
+
   const normalizedDescription = description
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " ");
@@ -285,7 +296,7 @@ function extractLinksFromDescription(description) {
   );
 
 
-  const matches = [...urlMatches, ...emailMatches, ...mentionMatches];
+  const matches = [...hrefMatches, ...urlMatches, ...emailMatches, ...mentionMatches];
 
   const sanitizedMatches = matches
     .map((value) => sanitizeLinkValue(value))
@@ -498,7 +509,6 @@ function parseEpisodeDescription(responseJson) {
   if (!Array.isArray(items)) {
     return "";
   }
-
 
   for (const item of items) {
     const rawDescription =
